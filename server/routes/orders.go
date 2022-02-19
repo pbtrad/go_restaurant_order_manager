@@ -3,47 +3,229 @@ package routes
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
+	"net/http"
 	"time"
 
-	"github.com/joho/godotenv"
+	"server/models"
+
+	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-//DBinstance func
-func DBinstance() *mongo.Client {
-	err := godotenv.Load(".env")
+var validate = validator.New()
 
-	if err != nil {
-		log.Fatal("Error loading .env file")
+var orderCollection *mongo.Collection = OpenCollection(Client, "orders")
+
+func AddOrder(c *gin.Context) {
+
+	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+	var order models.Order
+
+	if err := c.BindJSON(&order); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
 	}
 
-	MongoDb := os.Getenv("MONGODB_URL")
-
-	client, err := mongo.NewClient(options.Client().ApplyURI(MongoDb))
-	if err != nil {
-		log.Fatal(err)
+	validationErr := validate.Struct(order)
+	if validationErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+		fmt.Println(validationErr)
+		return
 	}
+	order.ID = primitive.NewObjectID()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
+	result, insertErr := orderCollection.InsertOne(ctx, order)
+	if insertErr != nil {
+		msg := fmt.Sprintf("order item was not created")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msg})
+		fmt.Println(insertErr)
+		return
+	}
 	defer cancel()
-	err = client.Connect(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Connected to MongoDB!")
 
-	return client
+	c.JSON(http.StatusOK, result)
 }
 
-var Client *mongo.Client = DBinstance()
+func GetOrders(c *gin.Context) {
 
-func OpenCollection(client *mongo.Client, collectionName string) *mongo.Collection {
+	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 
-	var collection *mongo.Collection = client.Database("cluster0").Collection(collectionName)
+	var orders []bson.M
 
-	return collection
+	cursor, err := orderCollection.Find(ctx, bson.M{})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	if err = cursor.All(ctx, &orders); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	defer cancel()
+
+	fmt.Println(orders)
+
+	c.JSON(http.StatusOK, orders)
+}
+
+func GetOrdersByWaiter(c *gin.Context) {
+
+	waiter := c.Params.ByName("waiter")
+
+	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+	var orders []bson.M
+
+	cursor, err := orderCollection.Find(ctx, bson.M{"server": waiter})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	if err = cursor.All(ctx, &orders); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	defer cancel()
+
+	fmt.Println(orders)
+
+	c.JSON(http.StatusOK, orders)
+}
+
+func GetOrderById(c *gin.Context) {
+
+	orderID := c.Params.ByName("id")
+	docID, _ := primitive.ObjectIDFromHex(orderID)
+
+	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+	var order bson.M
+
+	if err := orderCollection.FindOne(ctx, bson.M{"_id": docID}).Decode(&order); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	defer cancel()
+
+	fmt.Println(order)
+
+	c.JSON(http.StatusOK, order)
+}
+
+func UpdateWaiter(c *gin.Context) {
+
+	orderID := c.Params.ByName("id")
+	docID, _ := primitive.ObjectIDFromHex(orderID)
+
+	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+	type Waiter struct {
+		Server *string `json:"server"`
+	}
+
+	var waiter Waiter
+
+	if err := c.BindJSON(&waiter); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	result, err := orderCollection.UpdateOne(ctx, bson.M{"_id": docID},
+		bson.D{
+			{"$set", bson.D{{"server", waiter.Server}}},
+		},
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	defer cancel()
+
+	c.JSON(http.StatusOK, result.ModifiedCount)
+
+}
+
+func UpdateOrder(c *gin.Context) {
+
+	orderID := c.Params.ByName("id")
+	docID, _ := primitive.ObjectIDFromHex(orderID)
+
+	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+	var order models.Order
+
+	if err := c.BindJSON(&order); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	validationErr := validate.Struct(order)
+	if validationErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+		fmt.Println(validationErr)
+		return
+	}
+
+	result, err := orderCollection.ReplaceOne(
+		ctx,
+		bson.M{"_id": docID},
+		bson.M{
+			"dish":   order.Dish,
+			"price":  order.Price,
+			"server": order.Server,
+			"table":  order.Table,
+		},
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	defer cancel()
+
+	c.JSON(http.StatusOK, result.ModifiedCount)
+}
+
+func DeleteOrder(c *gin.Context) {
+
+	orderID := c.Params.ByName("id")
+	docID, _ := primitive.ObjectIDFromHex(orderID)
+
+	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
+
+	result, err := orderCollection.DeleteOne(ctx, bson.M{"_id": docID})
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		fmt.Println(err)
+		return
+	}
+
+	defer cancel()
+
+	c.JSON(http.StatusOK, result.DeletedCount)
+
 }
