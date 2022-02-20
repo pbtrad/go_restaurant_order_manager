@@ -15,7 +15,7 @@ const Order = ({
         <Col>Dish:{orderData !== undefined && orderData.dish}</Col>
         <Col>Server:{orderData !== undefined && orderData.server}</Col>
         <Col>Table:{orderData !== undefined && orderData.table}</Col>
-        <Col>Price: ${orderData !== undefined && orderData.price}</Col>
+        <Col>Price: €{orderData !== undefined && orderData.price}</Col>
         <Col>
           <Button onClick={() => deleteSingleOrder(orderData._id)}>
             delete order

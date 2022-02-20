@@ -200,7 +200,6 @@ const Orders = () => {
       });
   }
 
-  //gets all the orders
   function getAllOrders() {
     var url = "http://localhost:8000/orders";
     axios
@@ -214,7 +213,6 @@ const Orders = () => {
       });
   }
 
-  //deletes a single order
   function deleteSingleOrder(id) {
     var url = "http://localhost:8000/order/delete/" + id;
     axios.delete(url, {}).then((response) => {
